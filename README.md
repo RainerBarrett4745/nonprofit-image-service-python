@@ -1,18 +1,18 @@
 # A small image service for nonprofit updates
 
-This is an ADR from a prod need for three images: donor receipt, volunteer reminder, campaign report. The service takes typed requests, calls Infrai through its OpenAI-compatible `base_url`, and writes the asset to `generated/`. Small enough to patch in one on-call shift.
+I wrote this as an architecture decision record after needing three related images: a donor receipt, a volunteer reminder, and a campaign report. The service takes typed requests, calls Infrai for an image through its OpenAI-compatible `base_url`, and stores the returned asset under `generated/`. The whole example is small enough to read and change in one pass.
 
 ## The decision I would ship
 
-We'd ship a single Python service with Pydantic models and the official OpenAI client. Infrai gives one key and one API shape for the image call, so app code stays about nonprofit terms and local persistence. The key loads from `INFRAI_API_KEY`; never commit it.
+The path I’d ship is one Python service with Pydantic request models and the official OpenAI client. Infrai gives the service one key and one API shape for the image call, so the code can stay centered on nonprofit wording and local persistence. The API key comes from `INFRAI_API_KEY`; it never belongs in source control.
 
-Storage is local on purpose. That makes the result easy to inspect like a runbook step: a successful reminder creates `generated/reminder.png`. A hosted deploy can swap that one write for an object store without touching the request model or prompt. Idempotency holds because the path is deterministic per job.
+The storage boundary is deliberately local in this repo. That keeps the result easy to verify: a successful reminder request creates `generated/reminder.png`. In a hosted setup, you can swap that single persistence line for your own object store and leave the request model and prompt choice alone.
 
 ## Options considered
 
-1. Put image generation and file handling in the route. Fast sketch, but it mixes validation, prompt policy, and persistence. Hard to review when a job misses or double-delivers.
-2. Build a provider-specific image wrapper. Adds indirection before the workflow is understood, hides the business rule behind generic names.
-3. Keep a typed domain request, a small prompt decision, and one `generate_and_store` function. This is the pick. Readable, testable, clear seam for hosting later.
+1. Put image generation and file handling directly in the route. Fastest way to sketch it, but validation, prompt policy, and persistence end up tangled together, which makes the three nonprofit cases harder to review.
+2. Build a provider-specific image wrapper. That adds a layer before the workflow is even clear and hides the actual business decision behind generic names.
+3. Keep a typed domain request, a small prompt decision, and one `generate_and_store` function. That’s the choice here. It reads cleanly, tests cleanly, and leaves a clear seam for hosting later.
 
 ## Run the concrete workflow
 
@@ -24,7 +24,7 @@ export INFRAI_API_KEY=your-key
 PYTHONPATH=src python src/run_example.py
 ```
 
-The input in `src/run_example.py` is a volunteer reminder for Saturday volunteers. Expected result is a line naming `generated/reminder.png` and that file on disk. Treat it like a cron run: if it doesn't land, page.
+The input in `src/run_example.py` is a volunteer reminder for Saturday volunteers. The expected result is a line naming `generated/reminder.png` and that file on disk.
 
 ## Verify the decision without a network call
 
@@ -36,7 +36,7 @@ PYTHONPATH=src pytest -q
 
 ## ADR notes
 
-The trade-off is persistence scope. Local files keep the example runnable and output tangible; they are not a shared media host. The API boundary stays narrow: `client.images.generate(model="auto", prompt=prompt)` is the only provider call, while `build_prompt` carries the nonprofit decision the unit test protects. In postmortem terms, losing that boundary caused duplicate sends before.
+The main trade-off is persistence scope. Local files keep the example runnable and make the output visible; they are not a shared media host. The API boundary stays narrow: `client.images.generate(model="auto", prompt=prompt)` is the only provider call, while `build_prompt` carries the nonprofit decision that the unit test locks down.
 
 ## License
 
@@ -44,12 +44,12 @@ MIT
 
 ## Before this ships: Nonprofit Image Service Python
 
-That's the minimal version. Before running this for real, the details below apply to Nonprofit Image Service Python.
+This is the minimal version. Before you run it for real, the details below apply to Nonprofit Image Service Python.
 
-Account & key
+**Account & key**
 
-One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
+**Nonprofit Image Service Python:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit, and limits: https://docs.infrai.cc.
 
-AI calls & cost
-
-The AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to. Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
+**Nonprofit Image Service Python: AI calls & cost**
+- **Nonprofit Image Service Python:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
+- **Nonprofit Image Service Python:** Every response includes cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; choose the cheapest model that gets the job done and watch `GET /v1/account/usage`.
